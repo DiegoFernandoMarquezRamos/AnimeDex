@@ -1,4 +1,4 @@
-package com.ud4.animedex
+package com.ud4.animedex.data.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity

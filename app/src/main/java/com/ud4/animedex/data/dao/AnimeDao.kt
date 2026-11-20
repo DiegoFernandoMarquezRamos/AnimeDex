@@ -1,4 +1,4 @@
-package com.ud4.animedex
+package com.ud4.animedex.data.dao
 
 import androidx.room.Dao
 import androidx.room.Embedded
@@ -6,6 +6,9 @@ import androidx.room.Junction
 import androidx.room.Query
 import androidx.room.Relation
 import androidx.room.Transaction
+import com.ud4.animedex.data.entity.AnimeEntity
+import com.ud4.animedex.data.entity.AnimeGenreCrossRef
+import com.ud4.animedex.data.entity.GenreEntity
 import kotlinx.coroutines.flow.Flow
 
 data class AnimeWithGenres(
@@ -27,6 +30,13 @@ data class StudioAnimeCount(
     val count: Int
 )
 
+data class CharacterWithVoice(
+    val name: String?,
+    val imageUrl: String?,
+    val role: String,
+    val voiceActor: String?
+)
+
 @Dao
 interface AnimeDao {
 
@@ -40,11 +50,27 @@ interface AnimeDao {
     @Query("SELECT * FROM anime WHERE anime_id = :id")
     fun detail(id: Int): Flow<AnimeWithGenres?>
 
-    // 1. Buscar por título (LIKE '%' || :text || '%'), ordenado por rank
     @Query("SELECT * FROM anime WHERE title LIKE '%' || :text || '%' ORDER BY rank")
     fun searchByTitle(text: String): Flow<List<AnimeEntity>>
 
-    // 2. Anime de un género (necesita JOIN con anime_genre y genre)
+    @Query("SELECT * FROM anime WHERE title LIKE '%' || :text || '%' ORDER BY rank")
+    fun search(text: String): Flow<List<AnimeEntity>>
+
+    @Query(
+        """
+        SELECT * FROM anime
+        WHERE title LIKE '%' || :text || '%' AND score >= :minScore
+        ORDER BY
+          CASE WHEN :sort = 'SCORE' THEN score END DESC,
+          CASE WHEN :sort = 'POPULARITY' THEN popularity END ASC,
+          rank ASC
+        """
+    )
+    fun search(text: String, minScore: Float, sort: String): Flow<List<AnimeEntity>>
+
+    @Query("SELECT * FROM anime WHERE anime_id IN (:ids) ORDER BY rank")
+    fun byIds(ids: List<Int>): Flow<List<AnimeEntity>>
+
     @Query(
         """
         SELECT anime.* FROM anime 
@@ -56,23 +82,18 @@ interface AnimeDao {
     )
     fun animeByGenre(genre: String): Flow<List<AnimeEntity>>
 
-    // 3. Anime con puntuación mínima
     @Query("SELECT * FROM anime WHERE score >= :minScore ORDER BY score DESC")
     fun animeByMinScore(minScore: Double): Flow<List<AnimeEntity>>
 
-    // 4. Anime de un tipo
     @Query("SELECT * FROM anime WHERE type = :type ORDER BY rank")
     fun animeByType(type: String): Flow<List<AnimeEntity>>
 
-    // 5. Anime sin número de episodios (IS NULL)
     @Query("SELECT * FROM anime WHERE episodes IS NULL ORDER BY rank")
     fun animeWithoutEpisodes(): Flow<List<AnimeEntity>>
 
-    // 6. Los tres anime con más miembros
     @Query("SELECT * FROM anime ORDER BY members DESC LIMIT 3")
     fun top3ByMembers(): Flow<List<AnimeEntity>>
 
-    // 7. Estudio con más anime (tabla company, rol Studio)
     @Query(
         """
         SELECT company.name, COUNT(anime_company.anime_id) AS count
@@ -97,4 +118,31 @@ interface AnimeDao {
         """
     )
     fun studiosByAnimeCount(): Flow<List<StudioAnimeCount>>
+
+    @Query(
+        """
+        SELECT company.name
+        FROM company
+        INNER JOIN anime_company ON company.company_id = anime_company.company_id
+        WHERE anime_company.anime_id = :id AND anime_company.role = 'Studio'
+        LIMIT 1
+        """
+    )
+    fun studio(id: Int): Flow<String?>
+
+    @Query(
+        """
+        SELECT 
+            c.name AS name,
+            c.image_url AS imageUrl,
+            ac.role AS role,
+            p.name AS voiceActor
+        FROM anime_character ac
+        INNER JOIN character c ON ac.character_id = c.character_id
+        LEFT JOIN character_voice_actor cva ON c.character_id = cva.character_id
+        LEFT JOIN person p ON cva.person_id = p.person_id
+        WHERE ac.anime_id = :id AND ac.role = 'Main'
+        """
+    )
+    fun mainCharactersWithVoice(id: Int): Flow<List<CharacterWithVoice>>
 }
